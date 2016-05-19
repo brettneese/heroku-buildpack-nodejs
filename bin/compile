@@ -69,6 +69,43 @@ header "Creating runtime environment"
 create_env # can't pipe the whole thing because piping causes subshells, preventing exports
 list_node_config | output "$LOG_FILE"
 
+
+install_external_deps(){
+  
+  JVM_COMMON_BUILDPACK=${JVM_COMMON_BUILDPACK:-https://codon-buildpacks.s3.amazonaws.com/buildpacks/heroku/jvm-common.tgz}
+  mkdir -p /tmp/jvm-common
+  curl --retry 3 --silent --location $JVM_COMMON_BUILDPACK | tar xzm -C /tmp/jvm-common --strip-components=1
+  . /tmp/jvm-common/bin/util
+  . /tmp/jvm-common/bin/java
+  . /tmp/jvm-common/opt/jdbc.sh
+  install_java_with_overlay ${BUILD_DIR}
+  
+  # install sass
+  header "Installing Sass"
+  export GEM_HOME=$build_dir/.gem/ruby/1.9.1
+  PATH="$GEM_HOME/bin:$PATH"
+  if test -d $cache_dir/ruby/.gem; then
+    header "Restoring ruby gems directory from cache"
+    cp -r $cache_dir/ruby/.gem $build_dir
+    HOME=$build_dir gem update sass --user-install --no-rdoc --no-ri
+  else
+    HOME=$build_dir gem install sass --user-install --no-rdoc --no-ri
+  fi
+  
+  # cache ruby gems sass
+  rm -rf $cache_dir/ruby
+  mkdir -p $cache_dir/ruby
+  
+  # If app has a gems directory, cache it.
+  if test -d $build_dir/.gem; then
+    status "Caching ruby gems directory for future builds"
+    cp -r $build_dir/.gem $cache_dir/ruby
+  fi
+}
+
+header "Installing external binaries"
+install_external_deps | output "$LOG_FILE"
+
 install_bins() {
   local node_engine=$(read_json "$BUILD_DIR/package.json" ".engines.node")
   local iojs_engine=$(read_json "$BUILD_DIR/package.json" ".engines.iojs")
@@ -130,50 +167,6 @@ build_dependencies() {
 
 header "Building dependencies"
 build_dependencies | output "$LOG_FILE"
-
-install_external_deps(){
-  # download/unpack GDAL binaries
-  GDAL_PACKAGE="https://s3.amazonaws.com/localdata-public/misc/downloads/gdal_heroku.tar.gz"
-  GDAL_VENDOR="vendor/gdal"
-  echo "-----> Fetching GDAL binaries"
-  mkdir -p $BUILD_DIR/$GDAL_VENDOR
-  curl -s $GDAL_PACKAGE -o - | tar -xz -C $BUILD_DIR/$GDAL_VENDOR --strip-components=1 -f -
-  
-  export_env_dir $ENV_DIR
-  
-  JVM_COMMON_BUILDPACK=${JVM_COMMON_BUILDPACK:-https://codon-buildpacks.s3.amazonaws.com/buildpacks/heroku/jvm-common.tgz}
-  mkdir -p /tmp/jvm-common
-  curl --retry 3 --silent --location $JVM_COMMON_BUILDPACK | tar xzm -C /tmp/jvm-common --strip-components=1
-  . /tmp/jvm-common/bin/util
-  . /tmp/jvm-common/bin/java
-  . /tmp/jvm-common/opt/jdbc.sh
-  install_java_with_overlay ${BUILD_DIR}
-  
-  # install sass
-  header "Installing Sass"
-  export GEM_HOME=$build_dir/.gem/ruby/1.9.1
-  PATH="$GEM_HOME/bin:$PATH"
-  if test -d $cache_dir/ruby/.gem; then
-    header "Restoring ruby gems directory from cache"
-    cp -r $cache_dir/ruby/.gem $build_dir
-    HOME=$build_dir gem update sass --user-install --no-rdoc --no-ri
-  else
-    HOME=$build_dir gem install sass --user-install --no-rdoc --no-ri
-  fi
-  
-  # cache ruby gems sass
-  rm -rf $cache_dir/ruby
-  mkdir -p $cache_dir/ruby
-  
-  # If app has a gems directory, cache it.
-  if test -d $build_dir/.gem; then
-    status "Caching ruby gems directory for future builds"
-    cp -r $build_dir/.gem $cache_dir/ruby
-  fi
-}
-
-header "Installing external binaries"
-install_external_deps | output "$LOG_FILE"
 
 
 cache_build() {
